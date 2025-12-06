@@ -1,0 +1,22 @@
+# apps.yaml configuration for TrainScheduleMonitor
+# Place this in your AppDaemon apps/apps.yaml file
+
+train_monitor:
+  module: train-schedule-monitor
+  class: TrainScheduleMonitor
+  
+  # Required configuration
+  depart_station_crs: "HYR"          # Departure station CRS code
+  arrive_station_crs: "BFR"          # Arrival station CRS code
+  username: !secret rtt_username      # Your RTT API username (stored in secrets.yaml)
+  password: !secret rtt_password      # Your RTT API password (stored in secrets.yaml)
+  
+  # Optional configuration
+  base_url: "https://api.rtt.io/api/v1/json"  # API base URL (default shown)
+  train_departure_time: "08:10"                # The specific train departure time (default: 08:10)
+  check_before_departure: 60                   # Start checking X minutes before departure (default: 60)
+  check_interval_minutes: 10                   # Check every X minutes (default: 10)
+  
+  # Note: Monitoring only runs on weekdays (Monday-Friday)
+  # Example: For 08:10 train with 60 min lead time and 10 min intervals,
+  # checks will run at: 07:10, 07:20, 07:30, 07:40, 07:50, 08:00, 08:10

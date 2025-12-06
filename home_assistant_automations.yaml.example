@@ -1,0 +1,60 @@
+# Example Home Assistant automations for train schedule monitoring
+# Add these to your Home Assistant configuration.yaml or automations.yaml
+
+# Automation to notify when train is delayed
+- alias: "Train Delayed Notification"
+  trigger:
+    - platform: event
+      event_type: train_delayed
+  condition:
+    - condition: template
+      value_template: "{{ trigger.event.data.minutes_delayed > 5 }}"  # Only notify if more than 5 minutes delayed
+  action:
+    - service: notify.mobile_app_your_phone
+      data:
+        title: "🚂 Train Delayed"
+        message: >
+          Your train from {{ trigger.event.data.depart_station }} to 
+          {{ trigger.event.data.arrive_station }} is delayed by 
+          {{ trigger.event.data.minutes_delayed }} minutes.
+
+# Automation to notify when train is cancelled
+- alias: "Train Cancelled Notification"
+  trigger:
+    - platform: event
+      event_type: train_service_cancelled
+  action:
+    - service: notify.mobile_app_your_phone
+      data:
+        title: "❌ Train Cancelled"
+        message: >
+          Your train from {{ trigger.event.data.depart_station }} to 
+          {{ trigger.event.data.arrive_station }} has been cancelled.
+          Reason code: {{ trigger.event.data.reason_code }}
+
+# Automation to turn on a light when train is running late
+- alias: "Train Late Light Indicator"
+  trigger:
+    - platform: event
+      event_type: train_delayed
+  condition:
+    - condition: template
+      value_template: "{{ trigger.event.data.minutes_delayed > 10 }}"  # More than 10 minutes
+  action:
+    - service: light.turn_on
+      entity_id: light.train_status_light
+      data:
+        color_name: red
+        brightness: 255
+
+# Turn light green when train is on time
+- alias: "Train On Time Light Indicator"
+  trigger:
+    - platform: event
+      event_type: train_on_time
+  action:
+    - service: light.turn_on
+      entity_id: light.train_status_light
+      data:
+        color_name: green
+        brightness: 255

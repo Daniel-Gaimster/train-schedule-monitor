@@ -1,0 +1,87 @@
+# Quick Start Automation
+# Copy this to test your setup - it uses persistent notifications that work out of the box
+
+# This automation will show a notification in your Home Assistant UI
+# No phone app or additional setup required!
+
+- alias: "Train Monitor - Quick Start Test"
+  description: "Simple test automation to verify train monitoring is working"
+  trigger:
+    # Listen for ANY train event
+    - platform: event
+      event_type: train_delayed
+    - platform: event
+      event_type: train_on_time
+    - platform: event
+      event_type: train_early
+    - platform: event
+      event_type: train_service_cancelled
+  action:
+    # Choose action based on which event fired
+    - choose:
+        # If train is cancelled
+        - conditions:
+            - condition: template
+              value_template: "{{ trigger.event.event_type == 'train_service_cancelled' }}"
+          sequence:
+            - service: notify.persistent_notification
+              data:
+                title: "❌ Train Cancelled"
+                message: "Your train has been cancelled. Check for alternatives!"
+        
+        # If train is delayed
+        - conditions:
+            - condition: template
+              value_template: "{{ trigger.event.event_type == 'train_delayed' }}"
+          sequence:
+            - service: notify.persistent_notification
+              data:
+                title: "⚠️ Train Delayed"
+                message: "Train is delayed by {{ trigger.event.data.minutes_delayed }} minutes"
+        
+        # If train is on time
+        - conditions:
+            - condition: template
+              value_template: "{{ trigger.event.event_type == 'train_on_time' }}"
+          sequence:
+            - service: notify.persistent_notification
+              data:
+                title: "✅ Train On Time"
+                message: "Your train is running on schedule"
+        
+        # If train is early
+        - conditions:
+            - condition: template
+              value_template: "{{ trigger.event.event_type == 'train_early' }}"
+          sequence:
+            - service: notify.persistent_notification
+              data:
+                title: "🚀 Train Early"
+                message: "Train is early by {{ trigger.event.data.minutes_early }} minutes"
+  mode: single
+
+
+# INSTALLATION INSTRUCTIONS:
+# 
+# Method 1 - Using the UI (Easiest):
+# 1. Settings → Automations & Scenes
+# 2. Click the three dots menu (top right) → "Edit in YAML"
+# 3. Paste this entire file
+# 4. Save
+#
+# Method 2 - Using automations.yaml:
+# 1. Open your automations.yaml file
+# 2. Paste this automation at the end
+# 3. Developer Tools → YAML → Reload Automations
+#
+# TESTING:
+# To test without waiting for real train data:
+# 1. Developer Tools → Events
+# 2. Event type: train_delayed
+# 3. Event data: {"depart_station": "HYR", "arrive_station": "BFR", "minutes_delayed": 10}
+# 4. Click "FIRE EVENT"
+# 5. You should see a notification appear in Home Assistant!
+#
+# WHERE TO SEE NOTIFICATIONS:
+# - Click the notification bell icon (top right of Home Assistant)
+# - Or check: Settings → System → Logs
