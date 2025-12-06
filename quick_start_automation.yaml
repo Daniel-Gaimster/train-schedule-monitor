@@ -7,57 +7,51 @@
 - alias: "Train Monitor - Quick Start Test"
   description: "Simple test automation to verify train monitoring is working"
   trigger:
-    # Listen for ANY train event
+    # Listen for the train_status event
     - platform: event
-      event_type: train_delayed
-    - platform: event
-      event_type: train_on_time
-    - platform: event
-      event_type: train_early
-    - platform: event
-      event_type: train_service_cancelled
+      event_type: train_status
   action:
-    # Choose action based on which event fired
+    # Choose action based on the status field in the event data
     - choose:
         # If train is cancelled
         - conditions:
             - condition: template
-              value_template: "{{ trigger.event.event_type == 'train_service_cancelled' }}"
+              value_template: "{{ trigger.event.data.status == 'cancelled' }}"
           sequence:
             - service: notify.persistent_notification
               data:
                 title: "❌ Train Cancelled"
-                message: "Your train has been cancelled. Check for alternatives!"
+                message: "Your train has been cancelled. Reason code: {{ trigger.event.data.reason_code }}"
         
         # If train is delayed
         - conditions:
             - condition: template
-              value_template: "{{ trigger.event.event_type == 'train_delayed' }}"
+              value_template: "{{ trigger.event.data.status == 'delayed' }}"
           sequence:
             - service: notify.persistent_notification
               data:
                 title: "⚠️ Train Delayed"
-                message: "Train is delayed by {{ trigger.event.data.minutes_delayed }} minutes"
+                message: "Train is delayed by {{ trigger.event.data.minutes_delayed }} minutes (scheduled: {{ trigger.event.data.scheduled_time }}, actual: {{ trigger.event.data.actual_time }})"
         
         # If train is on time
         - conditions:
             - condition: template
-              value_template: "{{ trigger.event.event_type == 'train_on_time' }}"
+              value_template: "{{ trigger.event.data.status == 'on_time' }}"
           sequence:
             - service: notify.persistent_notification
               data:
                 title: "✅ Train On Time"
-                message: "Your train is running on schedule"
+                message: "Your train is running on schedule (arrival: {{ trigger.event.data.scheduled_time }})"
         
         # If train is early
         - conditions:
             - condition: template
-              value_template: "{{ trigger.event.event_type == 'train_early' }}"
+              value_template: "{{ trigger.event.data.status == 'early' }}"
           sequence:
             - service: notify.persistent_notification
               data:
                 title: "🚀 Train Early"
-                message: "Train is early by {{ trigger.event.data.minutes_early }} minutes"
+                message: "Train is early by {{ trigger.event.data.minutes_early }} minutes (scheduled: {{ trigger.event.data.scheduled_time }}, actual: {{ trigger.event.data.actual_time }})"
   mode: single
 
 
@@ -77,8 +71,21 @@
 # TESTING:
 # To test without waiting for real train data:
 # 1. Developer Tools → Events
-# 2. Event type: train_delayed
-# 3. Event data: {"depart_station": "HYR", "arrive_station": "BFR", "minutes_delayed": 10}
+# 2. Event type: train_status
+# 3. Event data examples:
+#
+#    Delayed train:
+#    {"status": "delayed", "depart_station": "HYR", "arrive_station": "BFR", "scheduled_time": "17:40", "actual_time": "17:50", "minutes_difference": 10, "minutes_delayed": 10}
+#
+#    On time train:
+#    {"status": "on_time", "depart_station": "HYR", "arrive_station": "BFR", "scheduled_time": "17:40", "actual_time": "17:40", "minutes_difference": 0}
+#
+#    Early train:
+#    {"status": "early", "depart_station": "HYR", "arrive_station": "BFR", "scheduled_time": "17:40", "actual_time": "17:35", "minutes_difference": -5, "minutes_early": 5}
+#
+#    Cancelled train:
+#    {"status": "cancelled", "depart_station": "HYR", "arrive_station": "BFR", "reason_code": "123"}
+#
 # 4. Click "FIRE EVENT"
 # 5. You should see a notification appear in Home Assistant!
 #

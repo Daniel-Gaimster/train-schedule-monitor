@@ -8,12 +8,28 @@ Data sourced from the [Real Time Trains API](https://www.realtimetrains.co.uk/ab
 
 - 🚂 Monitor a specific train service (e.g., your daily 08:10 commute)
 - ⏰ Automatic checks on weekday mornings leading up to departure
+- 🎯 **On-demand checks** - Call anytime to check next train or specific train
 - 📱 Real-time notifications about delays and cancellations
 - 💡 Control smart lights based on train status
 - 🔊 TTS announcements through smart speakers
 - 📊 Dashboard display of current train status
 
 ## Quick Start
+
+### Test It RIGHT NOW! 🚀
+
+No need to wait for Monday morning - test the service immediately:
+
+```yaml
+# Developer Tools → Services
+service: appdaemon.train_schedule_monitor_check_train
+```
+
+This checks the **next available train** on your route and fires events to trigger your automations!
+
+See **[ON_DEMAND_SERVICE.md](ON_DEMAND_SERVICE.md)** for dashboard buttons, voice control, and more examples.
+
+### Full Setup
 
 ### 1️⃣ Get Started
 See **[HOW_IT_WORKS.md](HOW_IT_WORKS.md)** for a visual overview of the system and setup checklist.
@@ -31,10 +47,12 @@ See **[HOME_ASSISTANT_AUTOMATIONS_GUIDE.md](HOME_ASSISTANT_AUTOMATIONS_GUIDE.md)
 
 | Guide | Description |
 |-------|-------------|
+| [ON_DEMAND_SERVICE.md](ON_DEMAND_SERVICE.md) | 🎯 **Check trains anytime** (recommended starting point!) |
 | [HOW_IT_WORKS.md](HOW_IT_WORKS.md) | 📋 System overview, flow diagram, and checklist |
 | [TESTING.md](TESTING.md) | 🧪 Local testing guide |
 | [APPDAEMON_SETUP.md](APPDAEMON_SETUP.md) | 🚀 AppDaemon deployment guide |
 | [HOME_ASSISTANT_AUTOMATIONS_GUIDE.md](HOME_ASSISTANT_AUTOMATIONS_GUIDE.md) | 🤖 Complete automation setup guide |
+| [PRODUCTION_TESTING.md](PRODUCTION_TESTING.md) | 🔧 Testing in production Home Assistant |
 | [CREDENTIALS_SETUP.md](CREDENTIALS_SETUP.md) | 🔐 Credentials configuration |
 | [quick_start_automation.yaml](quick_start_automation.yaml) | ⚡ Ready-to-use test automation |
 

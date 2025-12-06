@@ -8,12 +8,25 @@ The TrainScheduleMonitor app fires events that Home Assistant can listen to. The
 
 ### Events Fired by the App
 
-| Event Name | When Fired | Data Available |
-|-----------|------------|----------------|
-| `train_delayed` | Train is running late | `depart_station`, `arrive_station`, `minutes_delayed` |
-| `train_early` | Train is running early | `depart_station`, `arrive_station`, `minutes_early` |
-| `train_on_time` | Train is on schedule | `depart_station`, `arrive_station` |
-| `train_service_cancelled` | Service is cancelled | `depart_station`, `arrive_station`, `reason_code` |
+The app fires a single `train_status` event with different status values:
+
+| Event Name | Status Value | When Fired | Data Available |
+|-----------|--------------|------------|----------------|
+| `train_status` | `"delayed"` | Train is running late | `status`, `depart_station`, `arrive_station`, `scheduled_time`, `actual_time`, `minutes_difference`, `minutes_delayed` |
+| `train_status` | `"early"` | Train is running early | `status`, `depart_station`, `arrive_station`, `scheduled_time`, `actual_time`, `minutes_difference`, `minutes_early` |
+| `train_status` | `"on_time"` | Train is on schedule | `status`, `depart_station`, `arrive_station`, `scheduled_time`, `actual_time`, `minutes_difference` |
+| `train_status` | `"cancelled"` | Service is cancelled | `status`, `depart_station`, `arrive_station`, `reason_code` |
+
+**Event Data Fields:**
+- `status`: One of `"delayed"`, `"early"`, `"on_time"`, or `"cancelled"`
+- `depart_station`: Departure station code (e.g., "HYR")
+- `arrive_station`: Arrival station code (e.g., "BFR")
+- `scheduled_time`: Scheduled arrival time in HH:MM format (e.g., "17:40")
+- `actual_time`: Actual/expected arrival time in HH:MM format (not included for cancelled trains)
+- `minutes_difference`: Time difference in minutes (positive = late, negative = early, not included for cancelled trains)
+- `minutes_delayed`: Minutes delayed (only when status is "delayed")
+- `minutes_early`: Minutes early (only when status is "early")
+- `reason_code`: Cancellation reason code (only when status is "cancelled")
 
 ## Setup Methods
 
@@ -64,8 +77,8 @@ For more advanced setups:
 ### 1. Send Notification When Train is Delayed
 
 **UI Setup:**
-- Trigger: Event → `train_delayed`
-- Condition: Template → `{{ trigger.event.data.minutes_delayed > 5 }}`
+- Trigger: Event → `train_status`
+- Condition: Template → `{{ trigger.event.data.status == 'delayed' and trigger.event.data.minutes_delayed > 5 }}`
 - Action: Notify → Choose your notification service
 
 **YAML:**
@@ -73,10 +86,10 @@ For more advanced setups:
 - alias: "Notify When Train Delayed"
   trigger:
     - platform: event
-      event_type: train_delayed
+      event_type: train_status
   condition:
     - condition: template
-      value_template: "{{ trigger.event.data.minutes_delayed > 5 }}"
+      value_template: "{{ trigger.event.data.status == 'delayed' and trigger.event.data.minutes_delayed > 5 }}"
   action:
     - service: notify.mobile_app_your_phone
       data:
@@ -84,6 +97,8 @@ For more advanced setups:
         message: >
           Your 08:10 train is delayed by 
           {{ trigger.event.data.minutes_delayed }} minutes.
+          Scheduled: {{ trigger.event.data.scheduled_time }}, 
+          Expected: {{ trigger.event.data.actual_time }}
 ```
 
 **Important:** Replace `notify.mobile_app_your_phone` with your actual notification service.
@@ -123,7 +138,10 @@ Send different notifications based on delay severity:
 - alias: "Train Delay Notifications (Tiered)"
   trigger:
     - platform: event
-      event_type: train_delayed
+      event_type: train_status
+  condition:
+    - condition: template
+      value_template: "{{ trigger.event.data.status == 'delayed' }}"
   action:
     - choose:
         # Major delay (>15 minutes)
@@ -159,10 +177,10 @@ Control a smart light to show train status:
 - alias: "Train Status Light - Red for Delayed"
   trigger:
     - platform: event
-      event_type: train_delayed
+      event_type: train_status
   condition:
     - condition: template
-      value_template: "{{ trigger.event.data.minutes_delayed > 5 }}"
+      value_template: "{{ trigger.event.data.status == 'delayed' and trigger.event.data.minutes_delayed > 5 }}"
   action:
     - service: light.turn_on
       target:
@@ -174,7 +192,10 @@ Control a smart light to show train status:
 - alias: "Train Status Light - Green for On Time"
   trigger:
     - platform: event
-      event_type: train_on_time
+      event_type: train_status
+  condition:
+    - condition: template
+      value_template: "{{ trigger.event.data.status == 'on_time' }}"
   action:
     - service: light.turn_on
       target:
@@ -201,7 +222,10 @@ Announce through smart speakers:
 - alias: "Announce Train Cancellation"
   trigger:
     - platform: event
-      event_type: train_service_cancelled
+      event_type: train_status
+  condition:
+    - condition: template
+      value_template: "{{ trigger.event.data.status == 'cancelled' }}"
   action:
     - service: tts.google_translate_say
       target:
@@ -219,41 +243,55 @@ Settings → Devices & Services → Helpers → Create Helper → Text
 
 Name it: `input_text.train_status`
 
-**Then create automations to update it:**
+**Then create an automation to update it:**
 
 ```yaml
-- alias: "Update Train Status Display - Delayed"
+- alias: "Update Train Status Display"
   trigger:
     - platform: event
-      event_type: train_delayed
+      event_type: train_status
   action:
-    - service: input_text.set_value
-      target:
-        entity_id: input_text.train_status
-      data:
-        value: "Delayed {{ trigger.event.data.minutes_delayed }} min"
-
-- alias: "Update Train Status Display - On Time"
-  trigger:
-    - platform: event
-      event_type: train_on_time
-  action:
-    - service: input_text.set_value
-      target:
-        entity_id: input_text.train_status
-      data:
-        value: "On Time ✓"
-
-- alias: "Update Train Status Display - Cancelled"
-  trigger:
-    - platform: event
-      event_type: train_service_cancelled
-  action:
-    - service: input_text.set_value
-      target:
-        entity_id: input_text.train_status
-      data:
-        value: "CANCELLED ✗"
+    - choose:
+        # Delayed
+        - conditions:
+            - condition: template
+              value_template: "{{ trigger.event.data.status == 'delayed' }}"
+          sequence:
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.train_status
+              data:
+                value: "Delayed {{ trigger.event.data.minutes_delayed }} min"
+        # On Time
+        - conditions:
+            - condition: template
+              value_template: "{{ trigger.event.data.status == 'on_time' }}"
+          sequence:
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.train_status
+              data:
+                value: "On Time ✓"
+        # Early
+        - conditions:
+            - condition: template
+              value_template: "{{ trigger.event.data.status == 'early' }}"
+          sequence:
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.train_status
+              data:
+                value: "Early {{ trigger.event.data.minutes_early }} min"
+        # Cancelled
+        - conditions:
+            - condition: template
+              value_template: "{{ trigger.event.data.status == 'cancelled' }}"
+          sequence:
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.train_status
+              data:
+                value: "CANCELLED ✗"
 
 - alias: "Clear Train Status After Departure"
   trigger:
@@ -281,15 +319,44 @@ Simply wait for the AppDaemon app to check the train and fire events.
 Use Developer Tools to test your automations:
 
 1. **Go to Developer Tools → Events**
-2. **In "Event type", enter:** `train_delayed`
-3. **In "Event data", enter:**
+2. **In "Event type", enter:** `train_status`
+3. **In "Event data", enter one of these examples:**
+   
+   **For delayed train:**
    ```json
    {
+     "status": "delayed",
      "depart_station": "HYR",
      "arrive_station": "BFR",
+     "scheduled_time": "17:40",
+     "actual_time": "17:50",
+     "minutes_difference": 10,
      "minutes_delayed": 10
    }
    ```
+   
+   **For on-time train:**
+   ```json
+   {
+     "status": "on_time",
+     "depart_station": "HYR",
+     "arrive_station": "BFR",
+     "scheduled_time": "17:40",
+     "actual_time": "17:40",
+     "minutes_difference": 0
+   }
+   ```
+   
+   **For cancelled train:**
+   ```json
+   {
+     "status": "cancelled",
+     "depart_station": "HYR",
+     "arrive_station": "BFR",
+     "reason_code": "123"
+   }
+   ```
+
 4. **Click "FIRE EVENT"**
 5. **Check if your automation triggered**
 
@@ -308,7 +375,7 @@ After an event fires:
 **Check 1: Is the event being fired?**
 - Go to Developer Tools → Events
 - Click "LISTEN TO EVENTS"
-- Type: `train_delayed` (or the event you're testing)
+- Type: `train_status`
 - Click "START LISTENING"
 - Wait for the AppDaemon app to run
 - See if the event appears
@@ -318,12 +385,13 @@ After an event fires:
 - Look for: "Train Schedule Monitor initialized"
 
 **Check 3: Event name spelling**
-- Event names are case-sensitive
-- Must match exactly: `train_delayed`, `train_on_time`, etc.
+- Event name is case-sensitive
+- Must match exactly: `train_status`
 
 **Check 4: Condition preventing trigger**
 - Remove conditions temporarily to test
 - Check template syntax
+- Verify status values: `"delayed"`, `"early"`, `"on_time"`, `"cancelled"`
 
 ### Finding Entity IDs
 
@@ -344,19 +412,17 @@ After an event fires:
 Here's a complete, ready-to-use automation that you can copy:
 
 ```yaml
-# Simple notification when train is delayed more than 5 minutes
+# Simple notification when train is delayed more than 5 minutes or cancelled
 - alias: "Morning Train Alert"
   description: "Notify me about my 08:10 train status"
   trigger:
     - platform: event
-      event_type: train_delayed
-    - platform: event
-      event_type: train_service_cancelled
+      event_type: train_status
   action:
     - choose:
         - conditions:
             - condition: template
-              value_template: "{{ trigger.event.event_type == 'train_service_cancelled' }}"
+              value_template: "{{ trigger.event.data.status == 'cancelled' }}"
           sequence:
             - service: notify.persistent_notification
               data:
@@ -364,7 +430,7 @@ Here's a complete, ready-to-use automation that you can copy:
                 message: "Your 08:10 train has been cancelled!"
         - conditions:
             - condition: template
-              value_template: "{{ trigger.event.event_type == 'train_delayed' }}"
+              value_template: "{{ trigger.event.data.status == 'delayed' and trigger.event.data.minutes_delayed > 5 }}"
           sequence:
             - service: notify.persistent_notification
               data:

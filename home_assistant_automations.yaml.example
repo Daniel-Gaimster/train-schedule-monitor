@@ -5,10 +5,10 @@
 - alias: "Train Delayed Notification"
   trigger:
     - platform: event
-      event_type: train_delayed
+      event_type: train_status
   condition:
     - condition: template
-      value_template: "{{ trigger.event.data.minutes_delayed > 5 }}"  # Only notify if more than 5 minutes delayed
+      value_template: "{{ trigger.event.data.status == 'delayed' and trigger.event.data.minutes_delayed > 5 }}"  # Only notify if more than 5 minutes delayed
   action:
     - service: notify.mobile_app_your_phone
       data:
@@ -17,12 +17,17 @@
           Your train from {{ trigger.event.data.depart_station }} to 
           {{ trigger.event.data.arrive_station }} is delayed by 
           {{ trigger.event.data.minutes_delayed }} minutes.
+          Scheduled: {{ trigger.event.data.scheduled_time }}, 
+          Expected: {{ trigger.event.data.actual_time }}
 
 # Automation to notify when train is cancelled
 - alias: "Train Cancelled Notification"
   trigger:
     - platform: event
-      event_type: train_service_cancelled
+      event_type: train_status
+  condition:
+    - condition: template
+      value_template: "{{ trigger.event.data.status == 'cancelled' }}"
   action:
     - service: notify.mobile_app_your_phone
       data:
@@ -36,10 +41,10 @@
 - alias: "Train Late Light Indicator"
   trigger:
     - platform: event
-      event_type: train_delayed
+      event_type: train_status
   condition:
     - condition: template
-      value_template: "{{ trigger.event.data.minutes_delayed > 10 }}"  # More than 10 minutes
+      value_template: "{{ trigger.event.data.status == 'delayed' and trigger.event.data.minutes_delayed > 10 }}"  # More than 10 minutes
   action:
     - service: light.turn_on
       entity_id: light.train_status_light
@@ -51,7 +56,10 @@
 - alias: "Train On Time Light Indicator"
   trigger:
     - platform: event
-      event_type: train_on_time
+      event_type: train_status
+  condition:
+    - condition: template
+      value_template: "{{ trigger.event.data.status == 'on_time' }}"
   action:
     - service: light.turn_on
       entity_id: light.train_status_light
