@@ -46,6 +46,9 @@ class TrainScheduleMonitor(Hass):
         
         # Listen for Home Assistant events for on-demand train checks
         self.listen_event(self.service_check_train, "check_train_schedule")
+        
+        # Listen for test events to simulate train statuses
+        self.listen_event(self.test_train_status, "check_train_schedule_test")
     
     def service_check_train(self, event_name, data, **kwargs):
         """Event callback to check train status on demand.
@@ -112,6 +115,129 @@ class TrainScheduleMonitor(Hass):
             
         except Exception as e:
             self.log(f"Error in on-demand train check: {str(e)}", level="ERROR")
+    
+    def test_train_status(self, event_name, data, **kwargs):
+        """Test event callback to simulate train statuses for automation testing.
+        
+        This allows you to fire test events to verify your Home Assistant automations
+        work correctly without waiting for real train delays or cancellations.
+        
+        Args:
+            event_name: Name of the event (will be "check_train_schedule_test")
+            data: Event data dictionary containing test parameters
+            **kwargs: Additional keyword arguments
+        
+        Example calls from HA:
+            # Test cancelled train
+            service: event.fire
+            data:
+              event_type: check_train_schedule_test
+              event_data:
+                status: cancelled
+                reason_code: "123"
+            
+            # Test delayed train
+            service: event.fire
+            data:
+              event_type: check_train_schedule_test
+              event_data:
+                status: delayed
+                scheduled_time: "08:10"
+                actual_time: "08:25"
+                minutes_delayed: 15
+            
+            # Test early train
+            service: event.fire
+            data:
+              event_type: check_train_schedule_test
+              event_data:
+                status: early
+                scheduled_time: "08:10"
+                actual_time: "08:05"
+                minutes_early: 5
+            
+            # Test on-time train
+            service: event.fire
+            data:
+              event_type: check_train_schedule_test
+              event_data:
+                status: on_time
+                scheduled_time: "08:10"
+                actual_time: "08:10"
+        """
+        try:
+            status = data.get("status", "").lower()
+            
+            if not status:
+                self.log("Test event requires 'status' parameter", level="ERROR")
+                return
+            
+            # Prepare base event data
+            event_data = {
+                "depart_station": self.depart_station_crs,
+                "arrive_station": self.arrive_station_crs
+            }
+            
+            if status == "cancelled":
+                # Test cancelled train
+                reason_code = data.get("reason_code", "000")
+                event_data["status"] = "cancelled"
+                event_data["reason_code"] = str(reason_code)
+                self.log(f"TEST: Simulating cancelled train (reason: {reason_code})")
+                
+            elif status == "delayed":
+                # Test delayed train
+                scheduled_time = data.get("scheduled_time", "08:10")
+                actual_time = data.get("actual_time", "08:25")
+                minutes_delayed = data.get("minutes_delayed", 15)
+                
+                event_data["status"] = "delayed"
+                event_data["scheduled_time"] = scheduled_time
+                event_data["actual_time"] = actual_time
+                event_data["minutes_delayed"] = int(minutes_delayed)
+                event_data["minutes_difference"] = int(minutes_delayed)
+                
+                self.log(f"TEST: Simulating delayed train - Scheduled: {scheduled_time}, "
+                        f"Actual: {actual_time}, Delay: {minutes_delayed} minutes")
+                
+            elif status == "early":
+                # Test early train
+                scheduled_time = data.get("scheduled_time", "08:10")
+                actual_time = data.get("actual_time", "08:05")
+                minutes_early = data.get("minutes_early", 5)
+                
+                event_data["status"] = "early"
+                event_data["scheduled_time"] = scheduled_time
+                event_data["actual_time"] = actual_time
+                event_data["minutes_early"] = int(minutes_early)
+                event_data["minutes_difference"] = -int(minutes_early)
+                
+                self.log(f"TEST: Simulating early train - Scheduled: {scheduled_time}, "
+                        f"Actual: {actual_time}, Early by: {minutes_early} minutes")
+                
+            elif status == "on_time":
+                # Test on-time train
+                scheduled_time = data.get("scheduled_time", "08:10")
+                actual_time = data.get("actual_time", scheduled_time)
+                
+                event_data["status"] = "on_time"
+                event_data["scheduled_time"] = scheduled_time
+                event_data["actual_time"] = actual_time
+                event_data["minutes_difference"] = 0
+                
+                self.log(f"TEST: Simulating on-time train - Time: {scheduled_time}")
+                
+            else:
+                self.log(f"Unknown test status: {status}. Valid options: cancelled, delayed, early, on_time", 
+                        level="ERROR")
+                return
+            
+            # Fire the train_status event with test data
+            self.fire_event("train_status", **event_data)
+            self.log(f"TEST: Fired train_status event with data: {json.dumps(event_data, indent=2)}")
+            
+        except Exception as e:
+            self.log(f"Error in test train status: {str(e)}", level="ERROR")
     
     def check_train_status(self, cb_args):
         """Callback function to check train status."""

@@ -1,41 +1,39 @@
 # Example Home Assistant automations for train schedule monitoring
 # Add these to your Home Assistant configuration.yaml or automations.yaml
 
-# Automation to notify when train is delayed
-- alias: "Train Delayed Notification"
+# Automation to notify when train is delayed or cancelled
+- alias: "Train Status Notification"
   trigger:
     - platform: event
       event_type: train_status
-  condition:
-    - condition: template
-      value_template: "{{ trigger.event.data.status == 'delayed' and trigger.event.data.minutes_delayed > 5 }}"  # Only notify if more than 5 minutes delayed
   action:
-    - service: notify.mobile_app_your_phone
-      data:
-        title: "🚂 Train Delayed"
-        message: >
-          Your train from {{ trigger.event.data.depart_station }} to 
-          {{ trigger.event.data.arrive_station }} is delayed by 
-          {{ trigger.event.data.minutes_delayed }} minutes.
-          Scheduled: {{ trigger.event.data.scheduled_time }}, 
-          Expected: {{ trigger.event.data.actual_time }}
-
-# Automation to notify when train is cancelled
-- alias: "Train Cancelled Notification"
-  trigger:
-    - platform: event
-      event_type: train_status
-  condition:
-    - condition: template
-      value_template: "{{ trigger.event.data.status == 'cancelled' }}"
-  action:
-    - service: notify.mobile_app_your_phone
-      data:
-        title: "❌ Train Cancelled"
-        message: >
-          Your train from {{ trigger.event.data.depart_station }} to 
-          {{ trigger.event.data.arrive_station }} has been cancelled.
-          Reason code: {{ trigger.event.data.reason_code }}
+    - choose:
+        # Cancelled train
+        - conditions:
+            - condition: template
+              value_template: "{{ trigger.event.data.status == 'cancelled' }}"
+          sequence:
+            - service: notify.mobile_app_your_phone
+              data:
+                title: "❌ Train Cancelled"
+                message: >
+                  Your train from {{ trigger.event.data.depart_station }} to 
+                  {{ trigger.event.data.arrive_station }} has been cancelled.
+                  Reason code: {{ trigger.event.data.reason_code }}
+        # Delayed train (more than 5 minutes)
+        - conditions:
+            - condition: template
+              value_template: "{{ trigger.event.data.status == 'delayed' and trigger.event.data.minutes_delayed > 5 }}"
+          sequence:
+            - service: notify.mobile_app_your_phone
+              data:
+                title: "🚂 Train Delayed"
+                message: >
+                  Your train from {{ trigger.event.data.depart_station }} to 
+                  {{ trigger.event.data.arrive_station }} is delayed by 
+                  {{ trigger.event.data.minutes_delayed }} minutes.
+                  Scheduled: {{ trigger.event.data.scheduled_time }}, 
+                  Expected: {{ trigger.event.data.actual_time }}
 
 # Automation to turn on a light when train is running late
 - alias: "Train Late Light Indicator"
