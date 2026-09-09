@@ -1,6 +1,6 @@
 import requests
 import json
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from appdaemon.plugins.hass import Hass
 
 class TrainScheduleMonitor(Hass):
@@ -22,7 +22,14 @@ class TrainScheduleMonitor(Hass):
         
         # How often to check in minutes before departure (default: every 10 minutes)
         self.check_interval_minutes = self.args.get("check_interval_minutes", 10)
-        
+
+        # Upcoming-trains dashboard sensor configuration
+        self.upcoming_entity_id = self.args.get("upcoming_entity_id", "sensor.next_trains")
+        self.upcoming_count = self.args.get("upcoming_count", 5)
+        self.upcoming_refresh_minutes = self.args.get("upcoming_refresh_minutes", 5)
+        self.upcoming_window_start = self.args.get("upcoming_window_start")
+        self.upcoming_window_end = self.args.get("upcoming_window_end")
+
         # Start monitoring with time-based scheduling
         self.log(f"Train Schedule Monitor initialized for {self.train_departure_time} train")
         
@@ -49,6 +56,17 @@ class TrainScheduleMonitor(Hass):
         
         # Listen for test events to simulate train statuses
         self.listen_event(self.test_train_status, "check_train_schedule_test")
+
+        # Periodically refresh the upcoming-trains dashboard sensor
+        self.run_every(
+            self.refresh_upcoming_trains,
+            self.datetime(),
+            self.upcoming_refresh_minutes * 60,
+        )
+        self.log(
+            f"Scheduled upcoming trains refresh every {self.upcoming_refresh_minutes} "
+            f"minute(s) into {self.upcoming_entity_id}"
+        )
     
     def service_check_train(self, event_name, data, **kwargs):
         """Event callback to check train status on demand.
@@ -309,79 +327,162 @@ class TrainScheduleMonitor(Hass):
 
     def check_service_health(self, service_details):
         """Check the health/status of a train service.
-        
+
         Args:
             service_details: Dictionary containing service information
         """
         try:
-            location_detail = service_details.get('locationDetail', {})
-            
-            # Prepare common event data
-            event_data = {
-                "depart_station": self.depart_station_crs,
-                "arrive_station": self.arrive_station_crs
-            }
-            
-            # Check if service is cancelled
-            if 'cancelReasonCode' in location_detail:
-                reason_code = location_detail['cancelReasonCode']
-                self.log(f"Service is cancelled. Reason code: {reason_code}", level="WARNING")
-                event_data["status"] = "cancelled"
-                event_data["reason_code"] = str(reason_code)
-                self.fire_event("train_status", **event_data)
-                return
-            
-            # Check if we have the required time information
-            if 'gbttBookedArrival' not in location_detail or 'realtimeArrival' not in location_detail:
+            status_data = self._build_status_data(service_details)
+
+            if status_data is None:
                 self.log("Missing arrival time information", level="WARNING")
                 return
-            
-            # Times are in HHMM format (e.g., "1740" = 17:40)
-            # Convert to time objects for comparison
-            booked_time_str = str(location_detail['gbttBookedArrival']).zfill(4)  # Ensure 4 digits
-            realtime_time_str = str(location_detail['realtimeArrival']).zfill(4)
-            
-            # Parse HHMM format into time objects
-            booked_time = time(
-                hour=int(booked_time_str[:2]),
-                minute=int(booked_time_str[2:])
-            )
-            realtime_time = time(
-                hour=int(realtime_time_str[:2]),
-                minute=int(realtime_time_str[2:])
-            )
-            
-            # Convert to minutes since midnight for difference calculation
-            booked_minutes = booked_time.hour * 60 + booked_time.minute
-            realtime_minutes = realtime_time.hour * 60 + realtime_time.minute
-            
-            # Calculate delay in minutes (positive = delayed, negative = early)
-            minutes_delayed = realtime_minutes - booked_minutes
-            
-            self.log(f"Train status - Scheduled: {booked_time.strftime('%H:%M')}, "
-                    f"Actual: {realtime_time.strftime('%H:%M')}, "
-                    f"Difference: {minutes_delayed} minutes")
-            
-            # Add time information to event data
-            event_data["scheduled_time"] = booked_time.strftime('%H:%M')
-            event_data["actual_time"] = realtime_time.strftime('%H:%M')
-            event_data["minutes_difference"] = int(minutes_delayed)
-            
-            # Determine status and add status-specific data
-            if minutes_delayed > 0:
-                self.log(f"Train is delayed by {minutes_delayed} minutes", level="WARNING")
-                event_data["status"] = "delayed"
-                event_data["minutes_delayed"] = int(minutes_delayed)
-            elif minutes_delayed < 0:
-                self.log(f"Train is early by {abs(minutes_delayed)} minutes")
-                event_data["status"] = "early"
-                event_data["minutes_early"] = int(abs(minutes_delayed))
+
+            if status_data["status"] == "cancelled":
+                self.log(f"Service is cancelled. Reason code: {status_data['reason_code']}", level="WARNING")
+            elif status_data["status"] == "delayed":
+                self.log(f"Train is delayed by {status_data['minutes_delayed']} minutes", level="WARNING")
+            elif status_data["status"] == "early":
+                self.log(f"Train is early by {status_data['minutes_early']} minutes")
             else:
                 self.log("Train is on time")
-                event_data["status"] = "on_time"
-            
-            # Fire single event with all status information
+
+            event_data = {
+                "depart_station": self.depart_station_crs,
+                "arrive_station": self.arrive_station_crs,
+                **status_data,
+            }
             self.fire_event("train_status", **event_data)
-                
+
         except (KeyError, ValueError, TypeError) as e:
             self.log(f"Error processing service health data: {str(e)}", level="ERROR")
+
+    def _build_status_data(self, service_details):
+        """Classify a service's locationDetail into a status dict.
+
+        Shared by the single-train alerting path and the upcoming-trains
+        sensor so both agree on what counts as delayed/cancelled/etc.
+
+        Args:
+            service_details: Dictionary containing service information
+
+        Returns:
+            dict with at least "status", or None if arrival time data is
+            missing (and the service isn't cancelled).
+        """
+        location_detail = service_details.get('locationDetail', {})
+
+        # Check if service is cancelled
+        if 'cancelReasonCode' in location_detail:
+            reason_code = location_detail['cancelReasonCode']
+            return {
+                "status": "cancelled",
+                "reason_code": str(reason_code),
+                "platform": location_detail.get('platform'),
+            }
+
+        # Check if we have the required time information
+        if 'gbttBookedArrival' not in location_detail or 'realtimeArrival' not in location_detail:
+            return None
+
+        # Times are in HHMM format (e.g., "1740" = 17:40)
+        booked_time_str = str(location_detail['gbttBookedArrival']).zfill(4)
+        realtime_time_str = str(location_detail['realtimeArrival']).zfill(4)
+
+        booked_time = time(
+            hour=int(booked_time_str[:2]),
+            minute=int(booked_time_str[2:])
+        )
+        realtime_time = time(
+            hour=int(realtime_time_str[:2]),
+            minute=int(realtime_time_str[2:])
+        )
+
+        # Convert to minutes since midnight for difference calculation
+        booked_minutes = booked_time.hour * 60 + booked_time.minute
+        realtime_minutes = realtime_time.hour * 60 + realtime_time.minute
+
+        # Calculate delay in minutes (positive = delayed, negative = early)
+        minutes_delayed = realtime_minutes - booked_minutes
+
+        status_data = {
+            "scheduled_time": booked_time.strftime('%H:%M'),
+            "actual_time": realtime_time.strftime('%H:%M'),
+            "minutes_difference": int(minutes_delayed),
+            "platform": location_detail.get('platform'),
+        }
+
+        if minutes_delayed > 0:
+            status_data["status"] = "delayed"
+            status_data["minutes_delayed"] = int(minutes_delayed)
+        elif minutes_delayed < 0:
+            status_data["status"] = "early"
+            status_data["minutes_early"] = int(abs(minutes_delayed))
+        else:
+            status_data["status"] = "on_time"
+
+        return status_data
+
+    def get_upcoming_services(self, s, count):
+        """Fetch the next `count` upcoming services (no fixed date/time).
+
+        Args:
+            s: Authenticated requests session
+            count: Maximum number of services to return
+
+        Returns:
+            list of service_details dicts, ordered by departure time
+        """
+        try:
+            url = f"{self.base_url}/search/{self.depart_station_crs}/to/{self.arrive_station_crs}"
+            self.log(f"Querying API for upcoming services: {url}")
+            search_response = s.get(url)
+            search_response.raise_for_status()
+
+            search_response_json = search_response.json()
+            services = search_response_json.get('services') or []
+            return services[:count]
+
+        except requests.exceptions.RequestException as e:
+            self.log(f"API request failed: {str(e)}", level="ERROR")
+            return []
+
+    def _within_upcoming_window(self):
+        """Return True if now is within the configured refresh window (or no window set)."""
+        if not self.upcoming_window_start or not self.upcoming_window_end:
+            return True
+        now_time = datetime.now().time()
+        window_start = self.parse_time(self.upcoming_window_start)
+        window_end = self.parse_time(self.upcoming_window_end)
+        return window_start <= now_time <= window_end
+
+    def refresh_upcoming_trains(self, cb_args):
+        """Fetch the next upcoming services and publish them to a dashboard sensor."""
+        try:
+            if not self._within_upcoming_window():
+                return
+
+            s = self.api_session()
+            services = self.get_upcoming_services(s, self.upcoming_count)
+
+            trains = []
+            for service_details in services:
+                status_data = self._build_status_data(service_details)
+                if status_data is None:
+                    continue
+                trains.append(status_data)
+
+            self.set_state(
+                self.upcoming_entity_id,
+                state=len(trains),
+                attributes={
+                    "trains": trains,
+                    "depart_station": self.depart_station_crs,
+                    "arrive_station": self.arrive_station_crs,
+                    "last_updated": datetime.now().isoformat(),
+                },
+            )
+            self.log(f"Updated {self.upcoming_entity_id} with {len(trains)} upcoming train(s)")
+
+        except Exception as e:
+            self.log(f"Error refreshing upcoming trains: {str(e)}", level="ERROR")
