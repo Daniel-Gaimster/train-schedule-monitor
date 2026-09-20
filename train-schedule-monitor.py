@@ -474,7 +474,12 @@ class TrainScheduleMonitor(Hass):
 
             self.set_state(
                 self.upcoming_entity_id,
-                state=len(trains),
+                # str(), not int: AppDaemon's HASS plugin drops the "state"
+                # key from the outgoing request when the value is falsy (0),
+                # which makes Home Assistant reject the POST with 400 Bad
+                # Request (missing required "state" field) whenever there
+                # are zero upcoming trains.
+                state=str(len(trains)),
                 attributes={
                     "trains": trains,
                     "depart_station": self.depart_station_crs,
